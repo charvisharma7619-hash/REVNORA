@@ -1,0 +1,4 @@
+﻿Flask
+python-dotenv
+python-telegram-bot
+gunicorn
