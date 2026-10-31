@@ -1,0 +1,140 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REVNORA | Global Rewards Network</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:Arial,sans-serif;
+  background:#080510;color:white;
+  min-height:100vh;overflow-x:hidden;
+}
+body:before{
+  content:"";position:fixed;inset:0;z-index:-1;
+  background:
+    radial-gradient(circle at 15% 15%,#54128b55,transparent 35%),
+    radial-gradient(circle at 85% 75%,#a36a0950,transparent 35%);
+  animation:bgGlow 7s ease-in-out infinite alternate;
+}
+@keyframes bgGlow{to{filter:hue-rotate(35deg);transform:scale(1.08)}}
+.container{max-width:480px;margin:auto;padding:22px 16px 35px}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px}
+.logo{
+  font-size:27px;font-weight:900;letter-spacing:3px;
+  color:#d9aaff;text-shadow:0 0 10px #a020f0,0 0 25px #a020f0;
+}
+.online{font-size:11px;color:#7dffb2;border:1px solid #36d982;padding:7px 12px;border-radius:20px}
+.tagline{font-size:10px;letter-spacing:3px;color:#b994dc;margin-top:5px}
+.welcome{font-size:22px;font-weight:bold;margin-bottom:7px}
+.sub{color:#a99bb9;font-size:13px;margin-bottom:22px}
+.balance{
+  background:linear-gradient(135deg,#211039,#100b20);
+  border:1px solid #a43bff;border-radius:22px;padding:24px;
+  box-shadow:0 0 15px #9c27b055,inset 0 0 20px #8b2be522;
+  position:relative;overflow:hidden;margin-bottom:24px;
+}
+.balance:after{
+  content:"";position:absolute;width:130px;height:130px;
+  background:#b54aff22;border-radius:50%;right:-35px;top:-50px;
+  filter:blur(5px);
+}
+.label{font-size:11px;color:#c9a6ed;letter-spacing:2px}
+.coins{font-size:37px;font-weight:900;color:#ffd65a;margin:13px 0;text-shadow:0 0 15px #ffbb33}
+.coin-caption{font-size:12px;color:#b7a6ca}
+.section-title{font-size:17px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.card{
+  background:#151021;border:1px solid #542b78;
+  border-radius:18px;padding:19px 14px;
+  transition:.3s;cursor:pointer;
+}
+.card:hover{
+  transform:translateY(-5px);border-color:#d04cff;
+  box-shadow:0 0 18px #a020f055;
+}
+.card-icon{font-size:27px;margin-bottom:13px}
+.card h3{font-size:14px;margin-bottom:7px}
+.card p{font-size:11px;color:#a99bb9;line-height:1.5}
+.gold{border-color:#80621f}
+.gold:hover{border-color:#ffd65a;box-shadow:0 0 18px #ffd65a44}
+.daily{
+  margin-top:22px;padding:18px;border-radius:18px;
+  background:linear-gradient(110deg,#211438,#181020);
+  border:1px solid #9c4cff;
+}
+.daily h3{font-size:15px;margin-bottom:7px}
+.daily p{font-size:12px;color:#b6a6c7}
+.footer{text-align:center;color:#776887;font-size:10px;margin-top:30px;letter-spacing:2px}
+@media(max-width:350px){.coins{font-size:30px}.logo{font-size:23px}}
+</style>
+</head>
+<body>
+<div class="container">
+  <header class="header">
+    <div>
+      <div class="logo">REVNORA</div>
+      <div class="tagline">WATCH • EARN • REPEAT</div>
+    </div>
+    <div class="online">● ONLINE</div>
+  </header>
+
+  <div class="welcome">Welcome to REVNORA 👋</div>
+  <div class="sub">Your Global Rewards Network</div>
+
+  <div class="balance">
+    <div class="label">TOTAL BALANCE</div>
+    <div class="coins" id="balance">0 COINS</div>
+    <div class="coin-caption">✨ Keep completing tasks and earn more!</div>
+  </div>
+
+  <div class="section-title">Explore & Earn</div>
+  <div class="grid">
+    <div class="card" onclick="showMessage('Watch & Earn')">
+      <div class="card-icon">▶️</div>
+      <h3>Watch & Earn</h3>
+      <p>Watch rewarded videos</p>
+    </div>
+    <div class="card gold" onclick="showMessage('Website Tasks')">
+      <div class="card-icon">🌐</div>
+      <h3>Website Tasks</h3>
+      <p>Complete sponsored tasks</p>
+    </div>
+    <div class="card gold" onclick="showMessage('Daily Bonus')">
+      <div class="card-icon">🎁</div>
+      <h3>Daily Bonus</h3>
+      <p>Claim your daily reward</p>
+    </div>
+    <div class="card" onclick="showMessage('Referral')">
+      <div class="card-icon">👥</div>
+      <h3>Refer & Earn</h3>
+      <p>Invite friends and earn</p>
+    </div>
+    <div class="card" onclick="showMessage('Withdraw')">
+      <div class="card-icon">💸</div>
+      <h3>Withdraw</h3>
+      <p>Request your rewards</p>
+    </div>
+    <div class="card gold" onclick="showMessage('Profile')">
+      <div class="card-icon">👤</div>
+      <h3>My Profile</h3>
+      <p>View your account</p>
+    </div>
+  </div>
+
+  <div class="daily">
+    <h3>⚡ Your next reward awaits!</h3>
+    <p>Explore available tasks and grow your REVNORA balance.</p>
+  </div>
+
+  <div class="footer">REVNORA © 2026 • GLOBAL REWARDS NETWORK</div>
+</div>
+<script>
+function showMessage(section){
+  alert(section+" feature will be connected soon!");
+}
+</script>
+</body>
+</html>
