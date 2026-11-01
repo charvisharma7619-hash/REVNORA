@@ -1,7 +1,7 @@
 import json, os, hmac, hashlib, time, secrets
 from urllib.parse import urlparse, parse_qsl
 from workers import WorkerEntrypoint, Response
-from js import fetch
+from js import fetch, Object
 
 ORIGIN = "https://revnora.charvisharma7619.workers.dev"
 
@@ -11,6 +11,19 @@ def reply(data, status=200):
         "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-Admin-Key",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
     })
+
+
+async def telegram_post(url, payload):
+    # Build a native JavaScript init object; avoid passing nested Python dicts
+    # through the Pyodide JS function bridge.
+    options = Object.new()
+    options.method = "POST"
+    headers = Object.new()
+    headers.set if False else None
+    headers.__setattr__("Content-Type", "application/json")
+    options.headers = headers
+    options.body = json.dumps(payload)
+    return await fetch(url, options)
 
 def verify(init_data, token):
     if not init_data or not token: return None
@@ -90,9 +103,8 @@ class Default(WorkerEntrypoint):
                         "web_app": {"url": "https://revnora.charvisharma7619.workers.dev"}
                     }]]}
                 }
-                result = await fetch(
-                    "https://api.telegram.org/bot" + str(token) + "/sendMessage",
-                    {"method":"POST","headers":{"Content-Type":"application/json"},"body":json.dumps(payload)}
+                result = await telegram_post(
+                    "https://api.telegram.org/bot" + str(token) + "/sendMessage", payload
                 )
                 if not result.ok:
                     return reply({"ok":False,"message":"Telegram sendMessage failed"}, 502)
@@ -111,14 +123,13 @@ class Default(WorkerEntrypoint):
                 secret = str(getattr(self.env, "ADMIN_API_KEY", None) or "").strip()
                 if not token or not secret:
                     return reply({"status":"error","message":"Bot configuration is missing"}, 500)
-                result = await fetch(
+                result = await telegram_post(
                     "https://api.telegram.org/bot" + token + "/setWebhook",
-                    {"method":"POST","headers":{"Content-Type":"application/json"},
-                     "body":json.dumps({
-                         "url":"https://revnora-backend.charvisharma7619.workers.dev/telegram-webhook",
-                         "secret_token":secret,
-                         "allowed_updates":["message"]
-                     })}
+                    {
+                        "url":"https://revnora-backend.charvisharma7619.workers.dev/telegram-webhook",
+                        "secret_token":secret,
+                        "allowed_updates":["message"]
+                    }
                 )
                 telegram_result = await result.json()
                 return reply({"status":"success" if telegram_result.get("ok") else "error",
