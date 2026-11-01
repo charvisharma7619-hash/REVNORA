@@ -59,10 +59,14 @@ class Default(WorkerEntrypoint):
                     if int(requested) != uid: return None, reply({"status":"error","message":"Telegram account mismatch"},403)
                 except Exception: return None, reply({"status":"error","message":"Invalid telegram_id"},400)
             return user, None
+        def admin_check():
+            key = str(getattr(self.env, "ADMIN_API_KEY", None) or "").strip()
+            supplied = str(request.headers.get("X-Admin-Key", "") or "").strip()
+            matched = bool(key and supplied and hmac.compare_digest(key, supplied))
+            return matched, bool(key), bool(supplied)
+
         def is_admin():
-            key = getattr(self.env, "ADMIN_API_KEY", None)
-            supplied = request.headers.get("X-Admin-Key", "")
-            return bool(key and supplied and hmac.compare_digest(str(key), supplied))
+            return admin_check()[0]
 
         if path == "/telegram-webhook" and method == "POST":
             secret = getattr(self.env, "ADMIN_API_KEY", None)
@@ -93,8 +97,11 @@ class Default(WorkerEntrypoint):
             return reply({"ok":True})
 
         if path == "/api/admin/telegram-webhook" and method == "POST":
-            if not is_admin():
-                return reply({"status":"error","message":"Unauthorized"}, 401)
+            admin_ok, admin_key_configured, admin_header_received = admin_check()
+            if not admin_ok:
+                return reply({"status":"error","message":"Unauthorized",
+                              "diagnostics":{"admin_key_configured":admin_key_configured,
+                                             "admin_header_received":admin_header_received}}, 401)
             token = getattr(self.env, "BOT_TOKEN", None)
             secret = getattr(self.env, "ADMIN_API_KEY", None)
             if not token or not secret:
