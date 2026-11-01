@@ -238,7 +238,7 @@ class Default(WorkerEntrypoint):
         if path.startswith("/api/admin/"):
             if not is_admin(): return reply({"status":"error","message":"Unauthorized"},401)
             if path == "/api/admin/monetag-events" and method == "GET":
-                result=await rows("SELECT id,ymid,zone_id,event_type,reward_event_type,estimated_price,outcome,created_at FROM monetag_postback_logs ORDER BY id DESC LIMIT 30")
+                result=await rows("SELECT l.id,l.ymid,s.telegram_id,l.zone_id,l.event_type,l.reward_event_type,l.estimated_price,l.outcome,l.created_at FROM monetag_postback_logs l LEFT JOIN monetag_ad_sessions s ON s.ymid=l.ymid ORDER BY l.id DESC LIMIT 30")
                 return reply({"status":"success","events":result})
             if path == "/api/admin/users" and method == "GET":
                 result=await rows("SELECT telegram_id,username,first_name,coins,referral_code,referred_by,created_at FROM users ORDER BY created_at DESC")
