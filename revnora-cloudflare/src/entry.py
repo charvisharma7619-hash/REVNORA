@@ -270,6 +270,10 @@ class Default(WorkerEntrypoint):
                 result=await execute("INSERT INTO tasks(title,description,task_type,reward_coins,target_url) VALUES(?,?,?,?,?)",d["title"],d.get("description",""),d["task_type"],reward,d.get("target_url",""))
                 return reply({"status":"success","message":"Task created successfully","task_id":result.meta.last_row_id},201)
             if path == "/api/admin/withdrawals" and method == "GET":
+                await execute("""CREATE TABLE IF NOT EXISTS withdrawal_currency_details (
+                    withdrawal_id INTEGER PRIMARY KEY, country_code TEXT, currency TEXT NOT NULL,
+                    payout_amount REAL NOT NULL, coins INTEGER NOT NULL
+                )""")
                 result=await rows("""SELECT w.id,w.telegram_id,w.amount,w.payment_method,w.payment_details,w.status,w.created_at,
                     d.country_code,d.currency,d.payout_amount FROM withdrawals w
                     LEFT JOIN withdrawal_currency_details d ON d.withdrawal_id=w.id
@@ -368,7 +372,7 @@ class Default(WorkerEntrypoint):
             if not user: return reply({"status":"error","message":"User not found"},404)
             if user["coins"]<amount: return reply({"status":"error","message":"Insufficient coin balance"},400)
             # Determine payout currency from Cloudflare's country signal, not Telegram language.
-            country=str(getattr(request.cf,"country","") or "").upper()
+            country=str(request.headers.get("CF-IPCountry","") or "").upper()
             currency="INR" if country=="IN" else "USD"
             payout_amount=round(amount/20,2) if currency=="INR" else round(amount/1000,2)
             await execute("INSERT INTO withdrawals(telegram_id,amount,payment_method,payment_details) VALUES(?,?,?,?)",uid,amount,pm,pd)
