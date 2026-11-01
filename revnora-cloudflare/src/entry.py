@@ -187,8 +187,11 @@ class Default(WorkerEntrypoint):
                 reward=get("reward_event_type")
                 if not ymid or len(ymid)>120 or zone!="12170892":
                     return reply({"status":"ignored","reason":"Invalid ymid or zone"},400)
-                if event!="impression" or reward!="valued":
-                    return reply({"status":"ignored","reason":"Not a valued impression"})
+                # Monetag can report both impression and click events for a
+                # Rewarded Interstitial. Accept either only when Monetag marks
+                # the event as monetized; the ymid row makes processing idempotent.
+                if event not in ("impression","click") or reward!="valued":
+                    return reply({"status":"ignored","reason":"Event is not monetized"})
                 await execute("""CREATE TABLE IF NOT EXISTS monetag_ad_sessions (
                     ymid TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending', zone_id TEXT,
