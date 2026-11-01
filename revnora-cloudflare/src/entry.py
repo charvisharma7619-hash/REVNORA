@@ -1,6 +1,7 @@
 import json, os, hmac, hashlib, time, secrets
 from urllib.parse import urlparse, parse_qsl
 from workers import WorkerEntrypoint, Response
+from js import fetch
 
 ORIGIN = "https://revnora.charvisharma7619.workers.dev"
 
@@ -62,6 +63,57 @@ class Default(WorkerEntrypoint):
             key = getattr(self.env, "ADMIN_API_KEY", None)
             supplied = request.headers.get("X-Admin-Key", "")
             return bool(key and supplied and hmac.compare_digest(str(key), supplied))
+
+        if path == "/telegram-webhook" and method == "POST":
+            secret = getattr(self.env, "ADMIN_API_KEY", None)
+            supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+            if not secret or not supplied or not hmac.compare_digest(str(secret), supplied):
+                return reply({"ok":False,"message":"Unauthorized"}, 401)
+            update = await data()
+            message = update.get("message") or update.get("edited_message") or {}
+            chat = message.get("chat") or {}
+            if message.get("text", "").split(" ", 1)[0] == "/start" and chat.get("id"):
+                token = getattr(self.env, "BOT_TOKEN", None)
+                if not token:
+                    return reply({"ok":False,"message":"Bot token is not configured"}, 500)
+                payload = {
+                    "chat_id": chat["id"],
+                    "text": "Welcome to REVNORA! 🎮\\nEarn rewards by completing tasks, claiming daily bonuses and inviting friends.",
+                    "reply_markup": {"inline_keyboard": [[{
+                        "text": "🚀 Open REVNORA",
+                        "web_app": {"url": "https://revnora.charvisharma7619.workers.dev"}
+                    }]]}
+                }
+                result = await fetch(
+                    "https://api.telegram.org/bot" + str(token) + "/sendMessage",
+                    {"method":"POST","headers":{"Content-Type":"application/json"},"body":json.dumps(payload)}
+                )
+                if not result.ok:
+                    return reply({"ok":False,"message":"Telegram sendMessage failed"}, 502)
+            return reply({"ok":True})
+
+        if path == "/api/admin/telegram-webhook" and method == "POST":
+            if not is_admin():
+                return reply({"status":"error","message":"Unauthorized"}, 401)
+            token = getattr(self.env, "BOT_TOKEN", None)
+            secret = getattr(self.env, "ADMIN_API_KEY", None)
+            if not token or not secret:
+                return reply({"status":"error","message":"Bot configuration is missing"}, 500)
+            result = await fetch(
+                "https://api.telegram.org/bot" + str(token) + "/setWebhook",
+                {"method":"POST","headers":{"Content-Type":"application/json"},
+                 "body":json.dumps({
+                     "url":"https://revnora-backend.charvisharma7619.workers.dev/telegram-webhook",
+                     "secret_token":str(secret),
+                     "allowed_updates":["message"]
+                 })}
+            )
+            try:
+                telegram_result = await result.json()
+            except Exception:
+                telegram_result = {"ok":False}
+            return reply({"status":"success" if telegram_result.get("ok") else "error",
+                          "telegram":telegram_result}, 200 if telegram_result.get("ok") else 502)
 
         if path == "/":
             return reply({"ok":True,"service":"revnora-backend","status":"deployed"})
