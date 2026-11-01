@@ -177,20 +177,30 @@ class Default(WorkerEntrypoint):
             try:
                 params=parse_qs(urlparse(request.url).query,keep_blank_values=True)
                 get=lambda k: (params.get(k) or [""])[0]
+                await execute("""CREATE TABLE IF NOT EXISTS monetag_postback_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, ymid TEXT, zone_id TEXT,
+                    event_type TEXT, reward_event_type TEXT, estimated_price TEXT,
+                    outcome TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )""")
                 secret=str(getattr(self.env,"MONETAG_POSTBACK_SECRET",None) or "").strip()
                 supplied=get("key")
-                if not secret or not supplied or not hmac.compare_digest(secret,supplied):
-                    return reply({"status":"error","message":"Unauthorized"},401)
+                key_ok=bool(secret and supplied and hmac.compare_digest(secret,supplied))
                 ymid=get("ymid")
                 zone=get("zone_id")
                 event=get("event_type")
                 reward=get("reward_event_type")
+                price_text=get("estimated_price")
+                if not key_ok:
+                    await execute("INSERT INTO monetag_postback_logs(ymid,zone_id,event_type,reward_event_type,estimated_price,outcome) VALUES(?,?,?,?,?,?)",ymid,zone,event,reward,price_text,"unauthorized_key")
+                    return reply({"status":"error","message":"Unauthorized"},401)
                 if not ymid or len(ymid)>120 or zone!="12170892":
+                    await execute("INSERT INTO monetag_postback_logs(ymid,zone_id,event_type,reward_event_type,estimated_price,outcome) VALUES(?,?,?,?,?,?)",ymid,zone,event,reward,price_text,"invalid_ymid_or_zone")
                     return reply({"status":"ignored","reason":"Invalid ymid or zone"},400)
                 # Monetag can report both impression and click events for a
                 # Rewarded Interstitial. Accept either only when Monetag marks
                 # the event as monetized; the ymid row makes processing idempotent.
                 if event not in ("impression","click") or reward!="valued":
+                    await execute("INSERT INTO monetag_postback_logs(ymid,zone_id,event_type,reward_event_type,estimated_price,outcome) VALUES(?,?,?,?,?,?)",ymid,zone,event,reward,price_text,"not_valued_or_unsupported_event")
                     return reply({"status":"ignored","reason":"Event is not monetized"})
                 await execute("""CREATE TABLE IF NOT EXISTS monetag_ad_sessions (
                     ymid TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL,
@@ -200,7 +210,9 @@ class Default(WorkerEntrypoint):
                     confirmed_at TEXT
                 )""")
                 session=await first("SELECT telegram_id,status FROM monetag_ad_sessions WHERE ymid=?",ymid)
-                if not session: return reply({"status":"ignored","reason":"Unknown ad session"},404)
+                if not session:
+                    await execute("INSERT INTO monetag_postback_logs(ymid,zone_id,event_type,reward_event_type,estimated_price,outcome) VALUES(?,?,?,?,?,?)",ymid,zone,event,reward,price_text,"unknown_ymid")
+                    return reply({"status":"ignored","reason":"Unknown ad session"},404)
                 if session["status"]!="pending":
                     return reply({"status":"success","duplicate":True,"message":"Already processed"})
                 try: price=max(0.0,float(get("estimated_price") or 0))
@@ -209,6 +221,7 @@ class Default(WorkerEntrypoint):
                     zone_id=?,event_type=?,reward_event_type=?,estimated_price=?,
                     confirmed_at=CURRENT_TIMESTAMP WHERE ymid=? AND status='pending'""",
                     zone,event,reward,price,ymid)
+                await execute("INSERT INTO monetag_postback_logs(ymid,zone_id,event_type,reward_event_type,estimated_price,outcome) VALUES(?,?,?,?,?,?)",ymid,zone,event,reward,price_text,"valued_recorded")
                 return reply({"status":"success","recorded":True,"coins_credited":0})
             except Exception as exc:
                 return reply({"status":"error","diagnostic_type":type(exc).__name__,
@@ -224,6 +237,9 @@ class Default(WorkerEntrypoint):
 
         if path.startswith("/api/admin/"):
             if not is_admin(): return reply({"status":"error","message":"Unauthorized"},401)
+            if path == "/api/admin/monetag-events" and method == "GET":
+                result=await rows("SELECT id,ymid,zone_id,event_type,reward_event_type,estimated_price,outcome,created_at FROM monetag_postback_logs ORDER BY id DESC LIMIT 30")
+                return reply({"status":"success","events":result})
             if path == "/api/admin/users" and method == "GET":
                 result=await rows("SELECT telegram_id,username,first_name,coins,referral_code,referred_by,created_at FROM users ORDER BY created_at DESC")
                 return reply({"status":"success","total_users":len(result),"users":result})
