@@ -214,15 +214,34 @@ class Default(WorkerEntrypoint):
                     await execute("INSERT INTO monetag_postback_logs(ymid,zone_id,event_type,reward_event_type,estimated_price,outcome) VALUES(?,?,?,?,?,?)",ymid,zone,event,reward,price_text,"unknown_ymid")
                     return reply({"status":"ignored","reason":"Unknown ad session"},404)
                 if session["status"]!="pending":
-                    return reply({"status":"success","duplicate":True,"message":"Already processed"})
+                    return reply({"status":"success","duplicate":True,"message":"Already processed","coins_credited":0})
                 try: price=max(0.0,float(get("estimated_price") or 0))
                 except Exception: price=0.0
-                await execute("""UPDATE monetag_ad_sessions SET status='valued',
-                    zone_id=?,event_type=?,reward_event_type=?,estimated_price=?,
-                    confirmed_at=CURRENT_TIMESTAMP WHERE ymid=? AND status='pending'""",
-                    zone,event,reward,price,ymid)
+                # One unique reward ledger row per ymid prevents duplicate postbacks
+                # from crediting the same ad more than once.
+                await execute("""CREATE TABLE IF NOT EXISTS monetag_rewards (
+                    ymid TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL,
+                    coins INTEGER NOT NULL DEFAULT 10, credited INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )""")
+                await db.batch([
+                    db.prepare("""INSERT OR IGNORE INTO monetag_rewards(ymid,telegram_id,coins,credited)
+                        SELECT s.ymid,s.telegram_id,10,0 FROM monetag_ad_sessions s
+                        JOIN users u ON u.telegram_id=s.telegram_id
+                        WHERE s.ymid=? AND s.status='pending'""").bind(ymid),
+                    db.prepare("""UPDATE users SET coins=coins+10 WHERE telegram_id=(
+                        SELECT telegram_id FROM monetag_rewards WHERE ymid=? AND credited=0)""").bind(ymid),
+                    db.prepare("""INSERT INTO transactions(telegram_id,amount,transaction_type,description)
+                        SELECT telegram_id,10,'monetag_reward','Monetag valued ad reward'
+                        FROM monetag_rewards WHERE ymid=? AND credited=0""").bind(ymid),
+                    db.prepare("UPDATE monetag_rewards SET credited=1 WHERE ymid=? AND credited=0").bind(ymid),
+                    db.prepare("""UPDATE monetag_ad_sessions SET status='valued',
+                        zone_id=?,event_type=?,reward_event_type=?,estimated_price=?,
+                        confirmed_at=CURRENT_TIMESTAMP WHERE ymid=? AND status='pending'
+                        AND EXISTS (SELECT 1 FROM monetag_rewards WHERE ymid=? AND credited=1)""").bind(zone,event,reward,price,ymid,ymid)
+                ])
                 await execute("INSERT INTO monetag_postback_logs(ymid,zone_id,event_type,reward_event_type,estimated_price,outcome) VALUES(?,?,?,?,?,?)",ymid,zone,event,reward,price_text,"valued_recorded")
-                return reply({"status":"success","recorded":True,"coins_credited":0})
+                return reply({"status":"success","recorded":True,"coins_credited":10})
             except Exception as exc:
                 return reply({"status":"error","diagnostic_type":type(exc).__name__,
                               "diagnostic_message":str(exc)[:200]},500)
