@@ -81,9 +81,9 @@ class Default(WorkerEntrypoint):
             return admin_check()[0]
 
         if path == "/telegram-webhook" and method == "POST":
-            secret = getattr(self.env, "ADMIN_API_KEY", None)
-            supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-            if not secret or not supplied or not hmac.compare_digest(str(secret), supplied):
+            secret = str(getattr(self.env, "ADMIN_API_KEY", None) or "").strip()
+            supplied = str(request.headers.get("X-Telegram-Bot-Api-Secret-Token", "") or "").strip()
+            if not secret or not supplied or secret != supplied:
                 return reply({"ok":False,"message":"Unauthorized"}, 401)
             update = await data()
             message = update.get("message") or update.get("edited_message") or {}
