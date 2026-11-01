@@ -60,10 +60,12 @@ class Default(WorkerEntrypoint):
                 except Exception: return None, reply({"status":"error","message":"Invalid telegram_id"},400)
             return user, None
         def admin_check():
-            key = str(getattr(self.env, "ADMIN_API_KEY", None) or "").strip()
-            supplied = str(request.headers.get("X-Admin-Key", "") or "").strip()
-            matched = bool(key and supplied and hmac.compare_digest(key, supplied))
-            return matched, bool(key), bool(supplied)
+            try:
+                key = str(getattr(self.env, "ADMIN_API_KEY", None) or "").strip()
+                supplied = str(request.headers.get("X-Admin-Key", "") or "").strip()
+                return bool(key and supplied and key == supplied), bool(key), bool(supplied)
+            except Exception:
+                return False, False, False
 
         def is_admin():
             return admin_check()[0]
@@ -97,22 +99,24 @@ class Default(WorkerEntrypoint):
             return reply({"ok":True})
 
         if path == "/api/admin/telegram-webhook" and method == "POST":
-            admin_ok, admin_key_configured, admin_header_received = admin_check()
-            if not admin_ok:
-                return reply({"status":"error","message":"Unauthorized",
-                              "diagnostics":{"admin_key_configured":admin_key_configured,
-                                             "admin_header_received":admin_header_received}}, 401)
-            token = getattr(self.env, "BOT_TOKEN", None)
-            secret = getattr(self.env, "ADMIN_API_KEY", None)
-            if not token or not secret:
-                return reply({"status":"error","message":"Bot configuration is missing"}, 500)
+            # Keep the whole admin setup route guarded: a runtime exception must
+            # return JSON diagnostics rather than crashing the Worker with 1101.
             try:
+                admin_ok, key_configured, header_received = admin_check()
+                if not admin_ok:
+                    return reply({"status":"error","message":"Unauthorized",
+                                  "diagnostics":{"admin_key_configured":key_configured,
+                                                 "admin_header_received":header_received}}, 401)
+                token = str(getattr(self.env, "BOT_TOKEN", None) or "").strip()
+                secret = str(getattr(self.env, "ADMIN_API_KEY", None) or "").strip()
+                if not token or not secret:
+                    return reply({"status":"error","message":"Bot configuration is missing"}, 500)
                 result = await fetch(
-                    "https://api.telegram.org/bot" + str(token) + "/setWebhook",
+                    "https://api.telegram.org/bot" + token + "/setWebhook",
                     {"method":"POST","headers":{"Content-Type":"application/json"},
                      "body":json.dumps({
                          "url":"https://revnora-backend.charvisharma7619.workers.dev/telegram-webhook",
-                         "secret_token":str(secret),
+                         "secret_token":secret,
                          "allowed_updates":["message"]
                      })}
                 )
@@ -120,9 +124,8 @@ class Default(WorkerEntrypoint):
                 return reply({"status":"success" if telegram_result.get("ok") else "error",
                               "telegram":telegram_result}, 200 if telegram_result.get("ok") else 502)
             except Exception as exc:
-                # Return safe diagnostics only; never include bot/admin secrets.
                 return reply({"status":"error","diagnostic_type":type(exc).__name__,
-                              "diagnostic_message":str(exc)[:500]}, 500)
+                              "diagnostic_message":str(exc)[:300]}, 500)
 
         if path == "/":
             return reply({"ok":True,"service":"revnora-backend","status":"deployed"})
