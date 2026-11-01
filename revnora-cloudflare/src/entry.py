@@ -107,6 +107,20 @@ class Default(WorkerEntrypoint):
                     return reply({"ok":False,"message":"Telegram sendMessage failed"}, 502)
             return reply({"ok":True})
 
+        if path == "/api/admin/telegram-webhook-info" and method == "GET":
+            try:
+                if not admin_check()[0]:
+                    return reply({"status":"error","message":"Unauthorized"},401)
+                token = str(getattr(self.env, "BOT_TOKEN", None) or "").strip()
+                if not token:
+                    return reply({"status":"error","message":"Bot token is not configured"},500)
+                result = await fetch("https://api.telegram.org/bot" + token + "/getWebhookInfo")
+                info = json.loads(await result.text())
+                return reply({"status":"success","webhook":info},200)
+            except Exception as exc:
+                return reply({"status":"error","diagnostic_type":type(exc).__name__,
+                              "diagnostic_message":str(exc)[:300]},500)
+
         if path == "/api/admin/telegram-webhook" and method == "POST":
             # Keep the whole admin setup route guarded: a runtime exception must
             # return JSON diagnostics rather than crashing the Worker with 1101.
