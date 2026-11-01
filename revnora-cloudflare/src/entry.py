@@ -99,21 +99,23 @@ class Default(WorkerEntrypoint):
             secret = getattr(self.env, "ADMIN_API_KEY", None)
             if not token or not secret:
                 return reply({"status":"error","message":"Bot configuration is missing"}, 500)
-            result = await fetch(
-                "https://api.telegram.org/bot" + str(token) + "/setWebhook",
-                {"method":"POST","headers":{"Content-Type":"application/json"},
-                 "body":json.dumps({
-                     "url":"https://revnora-backend.charvisharma7619.workers.dev/telegram-webhook",
-                     "secret_token":str(secret),
-                     "allowed_updates":["message"]
-                 })}
-            )
             try:
+                result = await fetch(
+                    "https://api.telegram.org/bot" + str(token) + "/setWebhook",
+                    {"method":"POST","headers":{"Content-Type":"application/json"},
+                     "body":json.dumps({
+                         "url":"https://revnora-backend.charvisharma7619.workers.dev/telegram-webhook",
+                         "secret_token":str(secret),
+                         "allowed_updates":["message"]
+                     })}
+                )
                 telegram_result = await result.json()
-            except Exception:
-                telegram_result = {"ok":False}
-            return reply({"status":"success" if telegram_result.get("ok") else "error",
-                          "telegram":telegram_result}, 200 if telegram_result.get("ok") else 502)
+                return reply({"status":"success" if telegram_result.get("ok") else "error",
+                              "telegram":telegram_result}, 200 if telegram_result.get("ok") else 502)
+            except Exception as exc:
+                # Return safe diagnostics only; never include bot/admin secrets.
+                return reply({"status":"error","diagnostic_type":type(exc).__name__,
+                              "diagnostic_message":str(exc)[:500]}, 500)
 
         if path == "/":
             return reply({"ok":True,"service":"revnora-backend","status":"deployed"})
