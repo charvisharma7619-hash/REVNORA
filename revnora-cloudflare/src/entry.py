@@ -1,7 +1,7 @@
 import json, os, hmac, hashlib, time, secrets
 from urllib.parse import urlparse, parse_qsl
 from workers import WorkerEntrypoint, Response
-from js import fetch, Object
+from js import fetch, JSON
 
 ORIGIN = "https://revnora.charvisharma7619.workers.dev"
 
@@ -14,15 +14,12 @@ def reply(data, status=200):
 
 
 async def telegram_post(url, payload):
-    # Build a native JavaScript init object; avoid passing nested Python dicts
-    # through the Pyodide JS function bridge.
-    options = Object.new()
-    options.method = "POST"
-    headers = Object.new()
-    headers.set if False else None
-    headers.__setattr__("Content-Type", "application/json")
-    options.headers = headers
-    options.body = json.dumps(payload)
+    # Convert request options into a native JavaScript object before calling fetch.
+    options = JSON.parse(json.dumps({
+        "method": "POST",
+        "headers": {"Content-Type": "application/json"},
+        "body": json.dumps(payload)
+    }))
     return await fetch(url, options)
 
 def verify(init_data, token):
