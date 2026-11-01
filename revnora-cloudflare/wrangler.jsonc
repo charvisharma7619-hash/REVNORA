@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "revnora-backend",
+  "main": "src/entry.py",
+  "compatibility_date": "2026-10-31",
+  "compatibility_flags": ["python_workers"],
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "revnora-db",
+      "database_id": "72a9acf8-8489-4f70-8350-2e2afb02892a"
+    }
+  ]
+}
