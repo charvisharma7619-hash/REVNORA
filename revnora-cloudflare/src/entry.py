@@ -128,7 +128,7 @@ class Default(WorkerEntrypoint):
                         "allowed_updates":["message"]
                     }
                 )
-                telegram_result = await result.json()
+                telegram_result = json.loads(await result.text())
                 return reply({"status":"success" if telegram_result.get("ok") else "error",
                               "telegram":telegram_result}, 200 if telegram_result.get("ok") else 502)
             except Exception as exc:
