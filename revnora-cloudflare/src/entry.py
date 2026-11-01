@@ -1,5 +1,5 @@
 import json, os, hmac, hashlib, time, secrets
-from urllib.parse import urlparse, parse_qsl
+from urllib.parse import urlparse, parse_qsl, parse_qs
 from workers import WorkerEntrypoint, Response
 from js import fetch, JSON
 
@@ -157,6 +157,67 @@ class Default(WorkerEntrypoint):
             u = verify(request.headers.get("X-Telegram-Init-Data",""),getattr(self.env,"BOT_TOKEN",None))
             if not u: return reply({"status":"error","message":"Invalid or expired Telegram login"},401)
             return reply({"status":"success","user":{"id":u.get("id"),"first_name":u.get("first_name",""),"username":u.get("username","")}})
+
+        if path == "/api/ads/start" and method == "POST":
+            u,err=await user_auth(await data())
+            if err: return err
+            uid=int(u["id"])
+            await execute("""CREATE TABLE IF NOT EXISTS monetag_ad_sessions (
+                ymid TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending', zone_id TEXT,
+                event_type TEXT, reward_event_type TEXT,
+                estimated_price REAL DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                confirmed_at TEXT
+            )""")
+            ymid="rv"+str(uid)+"_"+secrets.token_hex(12)
+            await execute("INSERT INTO monetag_ad_sessions(ymid,telegram_id) VALUES(?,?)",ymid,uid)
+            return reply({"status":"success","ymid":ymid,"message":"Ad session created"})
+
+        if path == "/api/monetag/postback" and method == "GET":
+            try:
+                params=parse_qs(urlparse(request.url).query,keep_blank_values=True)
+                get=lambda k: (params.get(k) or [""])[0]
+                secret=str(getattr(self.env,"MONETAG_POSTBACK_SECRET",None) or "").strip()
+                supplied=get("key")
+                if not secret or not supplied or not hmac.compare_digest(secret,supplied):
+                    return reply({"status":"error","message":"Unauthorized"},401)
+                ymid=get("ymid")
+                zone=get("zone_id")
+                event=get("event_type")
+                reward=get("reward_event_type")
+                if not ymid or len(ymid)>120 or zone!="12170892":
+                    return reply({"status":"ignored","reason":"Invalid ymid or zone"},400)
+                if event!="impression" or reward!="valued":
+                    return reply({"status":"ignored","reason":"Not a valued impression"})
+                await execute("""CREATE TABLE IF NOT EXISTS monetag_ad_sessions (
+                    ymid TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending', zone_id TEXT,
+                    event_type TEXT, reward_event_type TEXT,
+                    estimated_price REAL DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    confirmed_at TEXT
+                )""")
+                session=await first("SELECT telegram_id,status FROM monetag_ad_sessions WHERE ymid=?",ymid)
+                if not session: return reply({"status":"ignored","reason":"Unknown ad session"},404)
+                if session["status"]!="pending":
+                    return reply({"status":"success","duplicate":True,"message":"Already processed"})
+                try: price=max(0.0,float(get("estimated_price") or 0))
+                except Exception: price=0.0
+                await execute("""UPDATE monetag_ad_sessions SET status='valued',
+                    zone_id=?,event_type=?,reward_event_type=?,estimated_price=?,
+                    confirmed_at=CURRENT_TIMESTAMP WHERE ymid=? AND status='pending'""",
+                    zone,event,reward,price,ymid)
+                return reply({"status":"success","recorded":True,"coins_credited":0})
+            except Exception as exc:
+                return reply({"status":"error","diagnostic_type":type(exc).__name__,
+                              "diagnostic_message":str(exc)[:200]},500)
+
+        if path.startswith("/api/ads/status/") and method == "GET":
+            ymid=path.rsplit("/",1)[1]
+            u,err=await user_auth()
+            if err: return err
+            session=await first("SELECT status,estimated_price FROM monetag_ad_sessions WHERE ymid=? AND telegram_id=?",ymid,int(u["id"]))
+            if not session: return reply({"status":"error","message":"Ad session not found"},404)
+            return reply({"status":"success","ad_status":session["status"],"estimated_price":session["estimated_price"]})
 
         if path.startswith("/api/admin/"):
             if not is_admin(): return reply({"status":"error","message":"Unauthorized"},401)
