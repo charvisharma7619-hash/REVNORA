@@ -219,13 +219,18 @@ class Default(WorkerEntrypoint):
                             SELECT ?,?,'offerwall_reward',? WHERE changes()=1""").bind(uid,coins,"Offerwall: "+(get("offer_name") or get("offer_type") or "Reward")),
                     ])
                 else:
+                    # Reverse only the exact amount originally credited for this
+                    # transaction. The status transition is the idempotency gate;
+                    # a duplicate chargeback cannot debit the balance twice.
                     await db.batch([
                         db.prepare("""UPDATE offerwall_transactions SET status='reversed',updated_at=CURRENT_TIMESTAMP
                             WHERE trans_id=? AND telegram_id=? AND status='approved'""").bind(trans_id,uid),
-                        db.prepare("""UPDATE users SET coins=coins-? WHERE telegram_id=?
-                            AND changes()=1""").bind(coins,uid),
+                        db.prepare("""UPDATE users SET coins=coins-(
+                                SELECT coins FROM offerwall_transactions WHERE trans_id=? AND status='reversed'
+                            ) WHERE telegram_id=? AND changes()=1""").bind(trans_id,uid),
                         db.prepare("""INSERT INTO transactions(telegram_id,amount,transaction_type,description)
-                            SELECT ?,?,'offerwall_reversal',? WHERE changes()=1""").bind(uid,-coins,"Offerwall reversal: "+trans_id),
+                            SELECT ?,-coins,'offerwall_reversal',? FROM offerwall_transactions
+                            WHERE trans_id=? AND status='reversed' AND changes()=1""").bind(uid,"Offerwall reversal: "+trans_id,trans_id),
                     ])
                 return Response("ok",status=200)
             except Exception as exc:
