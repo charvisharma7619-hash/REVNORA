@@ -158,6 +158,79 @@ class Default(WorkerEntrypoint):
             if not u: return reply({"status":"error","message":"Invalid or expired Telegram login"},401)
             return reply({"status":"success","user":{"id":u.get("id"),"first_name":u.get("first_name",""),"username":u.get("username","")}})
 
+        if path == "/api/offerwall/url" and method == "POST":
+            u,err=await user_auth(await data())
+            if err: return err
+            public=str(getattr(self.env,"OFFERWALL_PUBLIC_KEY",None) or "").strip()
+            secret=str(getattr(self.env,"OFFERWALL_SECRET_KEY",None) or "").strip()
+            if not public or not secret:
+                return reply({"status":"error","message":"Offerwall credentials are not configured"},503)
+            uid=str(int(u["id"]))
+            expires=str(int(time.time())+3600)
+            message="offerwall-user-v1\\n"+public+"\\n"+uid+"\\n"+expires
+            signature=hmac.new(secret.encode(),message.encode(),hashlib.sha256).hexdigest()
+            from urllib.parse import quote
+            wall="https://offerwall.me/offerwall/"+quote(public,safe="")+"/"+quote(uid,safe="")
+            wall+="?identityExpires="+expires+"&identitySignature="+signature
+            return reply({"status":"success","url":wall})
+
+        if path == "/api/offerwall/postback" and method == "POST":
+            try:
+                raw=await request.text()
+                params=dict(parse_qsl(raw,keep_blank_values=True))
+                if not params:
+                    try: params=await request.json()
+                    except Exception: params={}
+                get=lambda k: str(params.get(k,""))
+                sub_id,trans_id,reward,sig=get("subId"),get("transId"),get("reward"),get("signature")
+                secret=str(getattr(self.env,"OFFERWALL_SECRET_KEY",None) or "").strip()
+                if not secret or not all((sub_id,trans_id,reward,sig)):
+                    return Response("invalid",status=400)
+                expected=hashlib.md5((sub_id+trans_id+reward+secret).encode()).hexdigest()
+                if not hmac.compare_digest(expected.lower(),sig.lower()):
+                    return Response("invalid signature",status=403)
+                try:
+                    uid=int(sub_id)
+                    from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+                    reward_value=Decimal(reward)
+                    coins=int(reward_value.quantize(Decimal("1"),rounding=ROUND_HALF_UP))
+                except Exception:
+                    return Response("invalid reward or user",status=400)
+                if uid<=0 or coins<=0 or len(trans_id)>180:
+                    return Response("invalid values",status=400)
+                user=await first("SELECT telegram_id FROM users WHERE telegram_id=?",uid)
+                if not user: return Response("unknown user",status=404)
+                status=get("status")
+                if status not in ("1","2"): return Response("invalid status",status=400)
+                await execute("""CREATE TABLE IF NOT EXISTS offerwall_transactions (
+                    trans_id TEXT PRIMARY KEY, telegram_id INTEGER NOT NULL, offer_name TEXT,
+                    offer_type TEXT, reward_text TEXT NOT NULL, coins INTEGER NOT NULL,
+                    payout_usd TEXT, country TEXT, status TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )""")
+                if status=="1":
+                    await db.batch([
+                        db.prepare("""INSERT OR IGNORE INTO offerwall_transactions
+                            (trans_id,telegram_id,offer_name,offer_type,reward_text,coins,payout_usd,country,status)
+                            VALUES(?,?,?,?,?,?,?,?, 'approved')""").bind(trans_id,uid,get("offer_name"),get("offer_type"),reward,coins,get("payout"),get("country")),
+                        db.prepare("""UPDATE users SET coins=coins+? WHERE telegram_id=?
+                            AND changes()=1 AND EXISTS(SELECT 1 FROM offerwall_transactions WHERE trans_id=? AND status='approved')""").bind(coins,uid,trans_id),
+                        db.prepare("""INSERT INTO transactions(telegram_id,amount,transaction_type,description)
+                            SELECT ?,?,'offerwall_reward',? WHERE changes()=1""").bind(uid,coins,"Offerwall: "+(get("offer_name") or get("offer_type") or "Reward")),
+                    ])
+                else:
+                    await db.batch([
+                        db.prepare("""UPDATE offerwall_transactions SET status='reversed',updated_at=CURRENT_TIMESTAMP
+                            WHERE trans_id=? AND telegram_id=? AND status='approved'""").bind(trans_id,uid),
+                        db.prepare("""UPDATE users SET coins=coins-? WHERE telegram_id=?
+                            AND changes()=1""").bind(coins,uid),
+                        db.prepare("""INSERT INTO transactions(telegram_id,amount,transaction_type,description)
+                            SELECT ?,?,'offerwall_reversal',? WHERE changes()=1""").bind(uid,-coins,"Offerwall reversal: "+trans_id),
+                    ])
+                return Response("ok",status=200)
+            except Exception as exc:
+                return Response("postback error",status=500)
+
         if path == "/api/ads/start" and method == "POST":
             u,err=await user_auth(await data())
             if err: return err
