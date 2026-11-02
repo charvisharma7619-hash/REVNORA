@@ -178,9 +178,12 @@ class Default(WorkerEntrypoint):
             try:
                 raw=await request.text()
                 params=dict(parse_qsl(raw,keep_blank_values=True))
-                if not params:
-                    try: params=await request.json()
-                    except Exception: params={}
+                if not params and raw.strip():
+                    try:
+                        parsed=json.loads(raw)
+                        if isinstance(parsed,dict): params=parsed
+                    except Exception:
+                        params={}
                 get=lambda k: str(params.get(k,""))
                 sub_id,trans_id,reward,sig=get("subId"),get("transId"),get("reward"),get("signature")
                 secret=str(getattr(self.env,"OFFERWALL_SECRET_KEY",None) or "").strip()
