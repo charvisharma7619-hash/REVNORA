@@ -167,7 +167,7 @@ class Default(WorkerEntrypoint):
                 return reply({"status":"error","message":"Offerwall credentials are not configured"},503)
             uid=str(int(u["id"]))
             expires=str(int(time.time())+3600)
-            message="offerwall-user-v1\\n"+public+"\\n"+uid+"\\n"+expires
+            message="offerwall-user-v1\n"+public+"\n"+uid+"\n"+expires
             signature=hmac.new(secret.encode(),message.encode(),hashlib.sha256).hexdigest()
             from urllib.parse import quote
             wall="https://offerwall.me/offerwall/"+quote(public,safe="")+"/"+quote(uid,safe="")
